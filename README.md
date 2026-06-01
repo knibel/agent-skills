@@ -4,10 +4,10 @@ This repository stores reusable local skills for Cursor and Copilot.
 
 ## Install
 
-Run the installer from this repository:
+From a clone of this repository, run:
 
 ```bash
-bash /tmp/workspace/knibel/agent-skills/install.sh
+bash ./install.sh
 ```
 
 That will:

@@ -11,8 +11,9 @@ PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
 mkdir -p "${BIN_DIR}"
 ln -sfn "${REPO_DIR}/bin/myskills" "${TARGET}"
 chmod +x "${REPO_DIR}/bin/myskills"
+touch "${BASHRC}"
 
-if [ ! -f "${BASHRC}" ] || ! grep -Fqx "${PATH_LINE}" "${BASHRC}"; then
+if ! grep -Fqx "${PATH_LINE}" "${BASHRC}"; then
   printf '\n# Added by agent-skills\n%s\n' "${PATH_LINE}" >> "${BASHRC}"
 fi
 
