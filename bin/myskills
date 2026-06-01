@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+resolve_source() {
+  local source="${BASH_SOURCE[0]}"
+  local dir=""
+
+  while [ -L "${source}" ]; do
+    dir="$(cd -P "$(dirname "${source}")" && pwd)"
+    source="$(readlink "${source}")"
+    case "${source}" in
+      /*) ;;
+      *) source="${dir}/${source}" ;;
+    esac
+  done
+
+  cd -P "$(dirname "${source}")" && pwd
+}
+
+SCRIPT_DIR="$(resolve_source)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_SKILLS_DIR="${REPO_DIR}/skills"
+CURSOR_SKILLS_DIR="${HOME}/.cursor/skills"
+COPILOT_SKILLS_DIR="${HOME}/.copilot/skills"
+
+usage() {
+  cat <<'EOF'
+Usage: myskills <command>
+
+Commands:
+  update  Pull the repository and install skills locally
+  push    Copy local skill changes into the repository and push them
+EOF
+}
+
+ensure_dirs() {
+  mkdir -p "${REPO_SKILLS_DIR}" "${CURSOR_SKILLS_DIR}" "${COPILOT_SKILLS_DIR}"
+}
+
+sync_target_dir() {
+  local target_dir="$1"
+  local skill_path=""
+  local skill_name=""
+  local target_path=""
+
+  mkdir -p "${target_dir}"
+
+  for target_path in "${target_dir}"/*; do
+    [ -L "${target_path}" ] || continue
+    case "$(readlink "${target_path}")" in
+      "${REPO_SKILLS_DIR}"/*)
+        if [ ! -e "${REPO_SKILLS_DIR}/$(basename "${target_path}")" ]; then
+          rm -f "${target_path}"
+        fi
+        ;;
+    esac
+  done
+
+  for skill_path in "${REPO_SKILLS_DIR}"/*; do
+    [ -e "${skill_path}" ] || continue
+    skill_name="$(basename "${skill_path}")"
+    target_path="${target_dir}/${skill_name}"
+
+    if [ -L "${target_path}" ]; then
+      rm -f "${target_path}"
+    elif [ -e "${target_path}" ]; then
+      echo "Preserving existing local skill ${target_path}"
+      continue
+    fi
+
+    ln -s "${skill_path}" "${target_path}"
+  done
+}
+
+is_managed_link() {
+  local entry="$1"
+
+  [ -L "${entry}" ] || return 1
+
+  case "$(readlink "${entry}")" in
+    "${REPO_SKILLS_DIR}"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+import_local_skills() {
+  local source_dir="$1"
+  local entry=""
+  local name=""
+  local destination=""
+
+  [ -d "${source_dir}" ] || return 0
+
+  for entry in "${source_dir}"/*; do
+    [ -e "${entry}" ] || continue
+    name="$(basename "${entry}")"
+    case "${name}" in
+      .* ) continue ;;
+    esac
+
+    if is_managed_link "${entry}"; then
+      continue
+    fi
+
+    destination="${REPO_SKILLS_DIR}/${name}"
+    rm -rf "${destination}"
+    cp -R "${entry}" "${destination}"
+  done
+}
+
+update_cmd() {
+  ensure_dirs
+
+  if [ "${MYSKILLS_SKIP_PULL:-0}" != "1" ]; then
+    git -C "${REPO_DIR}" pull --ff-only
+  fi
+
+  sync_target_dir "${CURSOR_SKILLS_DIR}"
+  sync_target_dir "${COPILOT_SKILLS_DIR}"
+}
+
+push_cmd() {
+  ensure_dirs
+  import_local_skills "${CURSOR_SKILLS_DIR}"
+  import_local_skills "${COPILOT_SKILLS_DIR}"
+
+  git -C "${REPO_DIR}" add -A skills
+
+  if git -C "${REPO_DIR}" diff --cached --quiet --exit-code; then
+    echo "No local skill changes to push."
+    exit 0
+  fi
+
+  git -C "${REPO_DIR}" commit -m "Update skills"
+  git -C "${REPO_DIR}" push
+}
+
+main() {
+  case "${1:-}" in
+    update) update_cmd ;;
+    push) push_cmd ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "${@}"
